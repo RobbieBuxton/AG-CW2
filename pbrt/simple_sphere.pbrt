@@ -19,7 +19,7 @@ WorldBegin
 # lights
 AttributeBegin
 	Rotate 90 1 0 0 
-		LightSource "infinite" "integer nsamples" [64] "color L" [8 8 8]
+		LightSource "infinite" "integer nsamples" [8] "color L" [8 8 8]
 		"string mapname" ["textures/grace_latlong.exr"]
 AttributeEnd
 
