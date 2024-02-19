@@ -1,5 +1,5 @@
 import image_reader
-
+import copy
 import numpy as np
 
 class KDTree:
@@ -15,6 +15,8 @@ class KDTree:
     def split(self):
         if (self.depth == 0):
             a, aOffset, b, bOffset, self.splitAxis = medianCut(self.data, self.offset, self.overallShape)
+            print(a.shape)
+            print(b.shape)
             self.left = KDTree(a, self.overallShape, aOffset)
             self.right = KDTree(b, self.overallShape,bOffset)
         else: 
@@ -27,7 +29,8 @@ class KDTree:
 
     def getlightSources(self):
         if self.depth == 0:
-            return [((self.offset[0] + self.data.shape[0]/2) ,(self.offset[1] + self.data.shape[1]/2))]
+            split_y, split_x = findSplitPoint(self.data, getWeightFunction(self.offset, self.overallShape))
+            return [((self.offset[0] + split_y) ,(self.offset[1] + split_x))]
         else:
             return self.left.getlightSources() + self.right.getlightSources()
         
@@ -42,60 +45,62 @@ class KDTree:
             line = (self.right.offset,self.splitAxis,length)
             return  [line] + self.left.getLines() + self.right.getLines()
 
-def medianCut(data: np.ndarray, offset, shape):
-    
+
+
+def getWeightFunction(offset, shape):
+    weightFunc = lambda y, x, value: ((offset[0] + y)/shape[0])*np.pi * value
+    return weightFunc
+        
+        
+
+def findSplitPoint(data: np.ndarray, weightFunc):
+    # Calculate weight function values for each point in the data
+    weight_values = np.zeros(data.shape[:2])
+    for y in range(data.shape[0]):
+        for x in range(data.shape[1]):
+            weight_values[y, x] = weightFunc(y, x, np.sum(data[y, x]))
+
+    # Calculate cumulative sums along x and y axes
+    cum_sum_x = np.cumsum(weight_values.sum(axis=0))
+    cum_sum_y = np.cumsum(weight_values.sum(axis=1))
+
+    # Find indices where cumulative sums are closest to half of total sum
+    total_sum_x = cum_sum_x[-1]
+    total_sum_y = cum_sum_y[-1]
+    half_sum_x = total_sum_x / 2.0
+    half_sum_y = total_sum_y / 2.0
+    split_x = np.argmin(np.abs(cum_sum_x - half_sum_x))
+    split_y = np.argmin(np.abs(cum_sum_y - half_sum_y))
+    print(split_y, split_x)
+
+    return split_y, split_x
+
+def medianCut(data: np.ndarray, offset, overallShape):
+
+    split_y, split_x, = findSplitPoint(data, getWeightFunction(offset, overallShape))
+
     splitAxis = None
 
-    # Check if width > height
-    if data.shape[1] > data.shape[0]:
-        # Split on width
-        sumArray = np.array(np.zeros(data.shape[1])) 
-        for a in range(data.shape[1]):
-            for b in range(data.shape[0]):
-                scaleFactor = ((offset[1] + b)/shape[0])*np.pi
-                sumArray[a] += (scaleFactor * sum(data[b,a])/3)
-
-        splitIndex = find_split_index(sumArray)
-        
-        a = data[:,:splitIndex,:]
-        b = data[:,splitIndex:,:]
-        aOffset = (offset[0], offset[1])
-        bOffset = (offset[0], offset[1] + splitIndex)
-        splitAxis = 1
-
-    else:
-        # Split on height
-        sumArray = np.array(np.zeros(data.shape[0]))
-        for b in range(data.shape[0]):
-            for a in range(data.shape[1]):
-                scaleFactor = ((offset[0] + a)/shape[1])*np.pi
-                sumArray[b] += (scaleFactor * sum(data[b,a])/3)
-
-        splitIndex = find_split_index(sumArray)
-        
+    # Check if height > width - Split on y axis
+    if data.shape[0] > data.shape[1]:
+        splitIndex = split_y
         a = data[:splitIndex,:,:]
         b = data[splitIndex:,:,:]
 
         aOffset = (offset[0], offset[1])
         bOffset = (offset[0] + splitIndex, offset[1])
         splitAxis = 0
+    # Otherwise, width > height - Split on x
+    else:
+        splitIndex = split_x
+        
+        a = data[:,:splitIndex,:]
+        b = data[:,splitIndex:,:]
+        aOffset = (offset[0], offset[1])
+        bOffset = (offset[0] ,offset[1] + splitIndex)
+        splitAxis = 1
 
-    # print(data.shape)  
-    # print(a.shape)
-    # print(b.shape)
     return a, aOffset, b, bOffset, splitAxis
-
-
-# def draw(image, lines, points):
-#     #Image is a numpy array of shape (height, width, 3) where 3 is the RGB channels
-#     #Lines is a list of tuples (start, axis, length)
-#     #Points is a list of tuples (x,y)
-
-#     #Write me a function that draws the lines and points on the image of the numpy array
-#     #The lines should be drawn in white (1,1,1) and be 5 pixels wide
-#     #The points should be in blue (0,0,1) and be 5*5 pixels 
-#     pass
-
 
 def draw(image, lines, points,thickness=1):
     # Draw lines
@@ -117,65 +122,14 @@ def draw(image, lines, points,thickness=1):
     return image
 
 
-
-
-def main():
-    # Assuming image_reader.read_pfm and image_reader.write_ppm are correctly defined elsewhere
-    image = image_reader.read_pfm("GraceCathedral/grace_latlong.pfm")
-
-    cutTree = KDTree(image,image.shape)
-
-    loops = 4
-    for _ in range(loops):
-        cutTree.split()
-
-    print(pow(2,loops))
-
-    points = cutTree.getlightSources()
-    lines = cutTree.getLines()
-    print(lines)
-    print(points)
-    drawn_image = draw(image, lines, points)
-
-    gamma_corrected_image = convert_pfm_to_ppm(drawn_image, 0.2)
-    image_reader.write_ppm(gamma_corrected_image, "Out/test_copy.ppm")
-
-
-
-def find_split_index(arr):
-    """
-    Finds the index to split the array into two halves such that the sum of the halves is as equal as possible.
-    
-    Parameters:
-    arr (np.array): The input numpy array to split.
-    
-    Returns:
-    int: The index after which the array should be split.
-    """
-    # Calculate the cumulative sum of the array
-    cumulative_sum = np.cumsum(arr)
-
-    # Find the total sum and calculate half of it
-    total_sum = cumulative_sum[-1]
-    half_sum = total_sum / 2
-
-    # Find the index where cumulative sum is closest to half of the total sum
-    index = np.abs(cumulative_sum - half_sum).argmin()
-
-    # Adjust index if necessary to ensure the split is as equal as possible
-    if cumulative_sum[index] < half_sum:
-        index += 1
-
-    return index
-
 def apply_gamma_correction(image: np.ndarray, gamma_correction: float) -> np.ndarray:
     """
     Applies gamma correction to the image.
     """
-    # Normalize the image to the range 0-1
-    normalized_image = image - image.min()
-    normalized_image /= normalized_image.max()
-    # Apply gamma correction directly as a float value, not as a callable
+    # Create a copy of the image to avoid modifying the original data
+    normalized_image = np.copy(image)
+        
+    # Apply gamma correction
     corrected_image = np.power(normalized_image, gamma_correction)
     return corrected_image
 
@@ -184,18 +138,42 @@ def convert_pfm_to_ppm(pfm_image, gamma_correction: float):
     Reads a PFM image, applies gamma correction, and prepares it for PPM format.
     """
     # Apply gamma correction
-    gamma_corrected_image = apply_gamma_correction(pfm_image, gamma_correction)
+    gamma_corrected_image = apply_gamma_correction(pfm_image, 1.0/gamma_correction)
     
     # Convert to the appropriate range for PPM (0-255)
     ppm_ready_image = np.clip(gamma_corrected_image * 255, 0, 255).astype(np.uint8)
     
     return ppm_ready_image
 
+def main():
+    # Assuming image_reader.read_pfm and image_reader.write_ppm are correctly defined elsewhere
+    image = image_reader.read_pfm("GraceCathedral/grace_latlong.pfm")
+    
+    cutTree = KDTree(image,image.shape)
+    print(image.shape)
+    loops = 2
+    for i in range(loops):
+        cutTree.split()
+        splits = pow(2,i+1)
+
+        # points = cutTree.getlightSources()
+        lines = cutTree.getLines()
+        points = []
+        
+        out_image = copy.deepcopy(image)
+        drawn_image = draw(out_image, lines, points)
+
+        gamma_corrected_image = convert_pfm_to_ppm(drawn_image, 2.2)
+        name = "Out/test_copy_" + str(splits) +  ".ppm"
+        image_reader.write_ppm(gamma_corrected_image, name)
+
+
+main()
+
 
 def viewPFM():
     image = image_reader.read_pfm("pbrt/simple_sphere.pfm")
     gamma_corrected_image = convert_pfm_to_ppm(image, 1.0)
     image_reader.write_ppm(gamma_corrected_image, "Out/simple_sphere.ppm")
-
-viewPFM()
-# main()
+    
+# viewPFM()
