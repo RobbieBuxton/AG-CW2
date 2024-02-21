@@ -15,22 +15,18 @@ class KDTree:
     def split(self):
         if (self.depth == 0):
             a, aOffset, b, bOffset, self.splitAxis = medianCut(self.data, self.offset, self.overallShape)
-            print(a.shape)
-            print(b.shape)
             self.left = KDTree(a, self.overallShape, aOffset)
             self.right = KDTree(b, self.overallShape,bOffset)
         else: 
             self.left.split()
             self.right.split()
         self.depth += 1
-        
-    def size(self):
-        return self.depth
 
     def getlightSources(self):
         if self.depth == 0:
+            color_sum = np.sum(self.data, axis=(0, 1))
             split_y, split_x = findSplitPoint(self.data, getWeightFunction(self.offset, self.overallShape))
-            return [((self.offset[0] + split_y) ,(self.offset[1] + split_x))]
+            return [((self.offset[0] + split_y) ,(self.offset[1] + split_x),color_sum)]
         else:
             return self.left.getlightSources() + self.right.getlightSources()
         
@@ -45,21 +41,17 @@ class KDTree:
             line = (self.right.offset,self.splitAxis,length)
             return  [line] + self.left.getLines() + self.right.getLines()
 
-
-
-def getWeightFunction(offset, shape):
-    weightFunc = lambda y, x, value: ((offset[0] + y)/shape[0])*np.pi * value
+def getWeightFunction(offset, overallShape):
+    weightFunc = lambda y, value: np.sin(((offset[0] + y)/(overallShape[0]-1))*np.pi) * value
     return weightFunc
-        
-        
-
+            
 def findSplitPoint(data: np.ndarray, weightFunc):
     # Calculate weight function values for each point in the data
     weight_values = np.zeros(data.shape[:2])
     for y in range(data.shape[0]):
         for x in range(data.shape[1]):
-            weight_values[y, x] = weightFunc(y, x, np.sum(data[y, x]))
-
+            weight_values[y, x] = weightFunc(y, np.sum(data[y, x])/3)
+            
     # Calculate cumulative sums along x and y axes
     cum_sum_x = np.cumsum(weight_values.sum(axis=0))
     cum_sum_y = np.cumsum(weight_values.sum(axis=1))
@@ -69,9 +61,8 @@ def findSplitPoint(data: np.ndarray, weightFunc):
     total_sum_y = cum_sum_y[-1]
     half_sum_x = total_sum_x / 2.0
     half_sum_y = total_sum_y / 2.0
-    split_x = np.argmin(np.abs(cum_sum_x - half_sum_x))
-    split_y = np.argmin(np.abs(cum_sum_y - half_sum_y))
-    print(split_y, split_x)
+    split_x = np.abs(cum_sum_x - half_sum_x).argmin()
+    split_y = np.abs(cum_sum_y - half_sum_y).argmin()
 
     return split_y, split_x
 
@@ -150,30 +141,66 @@ def main():
     image = image_reader.read_pfm("GraceCathedral/grace_latlong.pfm")
     
     cutTree = KDTree(image,image.shape)
-    print(image.shape)
-    loops = 2
+    loops = 6
     for i in range(loops):
         cutTree.split()
         splits = pow(2,i+1)
 
-        # points = cutTree.getlightSources()
+        points = cutTree.getlightSources()
         lines = cutTree.getLines()
-        points = []
         
         out_image = copy.deepcopy(image)
         drawn_image = draw(out_image, lines, points)
 
         gamma_corrected_image = convert_pfm_to_ppm(drawn_image, 2.2)
-        name = "Out/test_copy_" + str(splits) +  ".ppm"
+        name = "Out/MC/cut_" + str(splits) +  ".ppm"
         image_reader.write_ppm(gamma_corrected_image, name)
-
+    
+    out_image = copy.deepcopy(image)
+    points = cutTree.getlightSources()
+    
+    color_points = color_pixels(out_image, points)
+    #divide every value by 64
+    gamma_corrected_image = convert_pfm_to_ppm(color_points / 8192, 2.2)
+    name = "Out/MC/cut_points_" + str(splits) +  ".ppm"
+    image_reader.write_ppm(gamma_corrected_image, name)
+    
+    
+def color_pixels(image, points):
+    result = np.zeros_like(image)  # Initialize an array with zeros of the same shape as the image
+    
+    for point in points:
+        x = point[0]
+        y = point [1]
+        color = point[2]
+        
+        x_min = max(0, x - 5)
+        x_max = min(image.shape[0], x + 6)
+        y_min = max(0, y - 5)
+        y_max = min(image.shape[1], y + 6)
+                
+        result[x_min:x_max, y_min:y_max] = color  # Set all pixels within the radius to the same color
+        
+    return result
+    
 
 main()
 
 
 def viewPFM():
-    image = image_reader.read_pfm("pbrt/simple_sphere.pfm")
-    gamma_corrected_image = convert_pfm_to_ppm(image, 1.0)
-    image_reader.write_ppm(gamma_corrected_image, "Out/simple_sphere.ppm")
+    image_8 = image_reader.read_pfm("pbrt/simple_sphere_8.pfm")
+    image_16 = image_reader.read_pfm("pbrt/simple_sphere_16.pfm")
+    image_32 = image_reader.read_pfm("pbrt/simple_sphere_32.pfm")
+    image_64 = image_reader.read_pfm("pbrt/simple_sphere_64.pfm")
+    
+    gamma_corrected_image_8 = convert_pfm_to_ppm(image_8, 2.2)
+    gamma_corrected_image_16 = convert_pfm_to_ppm(image_16, 2.2)
+    gamma_corrected_image_32 = convert_pfm_to_ppm(image_32, 2.2)
+    gamma_corrected_image_64 = convert_pfm_to_ppm(image_64, 2.2)
+    
+    image_reader.write_ppm(gamma_corrected_image_8, "Out/simple_sphere_8.ppm")
+    image_reader.write_ppm(gamma_corrected_image_16, "Out/simple_sphere_16.ppm")
+    image_reader.write_ppm(gamma_corrected_image_32, "Out/simple_sphere_32.ppm")
+    image_reader.write_ppm(gamma_corrected_image_64, "Out/simple_sphere_64.ppm")
     
 # viewPFM()
