@@ -174,10 +174,10 @@ def color_pixels(image, points):
         y = point [1]
         color = point[2]
         
-        x_min = max(0, x - 5)
-        x_max = min(image.shape[0], x + 6)
-        y_min = max(0, y - 5)
-        y_max = min(image.shape[1], y + 6)
+        x_min = max(0, x - 2)
+        x_max = min(image.shape[0], x + 3)
+        y_min = max(0, y - 2)
+        y_max = min(image.shape[1], y + 3)
                 
         result[x_min:x_max, y_min:y_max] = color  # Set all pixels within the radius to the same color
         
